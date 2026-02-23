@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v clang-format-11 >/dev/null 2>&1; then
+  exec clang-format-11 "$@"
+fi
+
+# Fallback to clang-format if v11 alias does not exist.
+if command -v clang-format >/dev/null 2>&1; then
+  exec clang-format "$@"
+fi
+
+echo "clang-format shim: no clang-format binary found" >&2
+exit 127

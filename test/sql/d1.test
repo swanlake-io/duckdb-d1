@@ -1,0 +1,66 @@
+# name: test/sql/d1.test
+# description: test d1 extension core binder/runtime behavior without mocks
+# group: [sql]
+
+require d1
+
+statement ok
+CREATE SECRET d1_bad_port (
+    TYPE d1,
+    account_id 'acc',
+    database_id 'db',
+    api_token 'token',
+    endpoint 'http://127.0.0.1:abc'
+)
+
+statement error
+SELECT * FROM d1_query('d1_bad_port', 'SELECT 1')
+----
+Invalid URL, invalid port
+
+statement ok
+CREATE SECRET d1_unreachable (
+    TYPE d1,
+    account_id 'acc',
+    database_id 'db',
+    api_token 'token',
+    endpoint 'http://127.0.0.1:1'
+)
+
+statement error
+SELECT * FROM d1_query('d1_unreachable', 'SELECT 1')
+----
+D1 HTTP request failed
+
+statement error
+SELECT * FROM d1_execute('missing_secret', 'SELECT 1')
+----
+Secret with name "missing_secret" not found
+
+statement error
+SELECT * FROM d1_query('d1_unreachable', 'INSERT INTO t VALUES (1)')
+----
+d1_query only supports read queries
+
+statement error
+SELECT * FROM d1_batch_execute('d1_unreachable', '{"sql": "select 1"}')
+----
+Batch payload must be a JSON array
+
+statement error
+SELECT * FROM d1_batch_execute('d1_unreachable', 1)
+----
+Batch payload must be a JSON string, LIST or ARRAY
+
+statement error
+SELECT * FROM d1_scan('d1_unreachable', '')
+----
+d1_scan argument "table_name" cannot be empty
+
+statement ok
+SET enable_external_access = false
+
+statement error
+ATTACH '' AS d1_disabled (TYPE d1, SECRET d1_unreachable)
+----
+disabled through configuration

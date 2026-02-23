@@ -18,7 +18,7 @@ jobs:
     with:
       duckdb_version: v1.4.4
       ci_tools_version: v1.4.4
-      extension_name: quack
+      extension_name: d1
 
   code-quality-check:
     name: Code Quality Check
@@ -26,5 +26,70 @@ jobs:
     with:
       duckdb_version: v1.4.4
       ci_tools_version: v1.4.4
-      extension_name: quack
-      format_checks: 'format;tidy'
+      extension_name: d1
+      format_checks: "format;tidy"
+
+  strict-lint:
+    name: Strict Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install clang-tidy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy
+      - name: Run strict lint checks
+        run: ./scripts/lint_strict.sh
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    if: ${{ secrets.D1_ACCOUNT_ID != '' && secrets.D1_DATABASE_ID != '' && secrets.D1_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build release binaries
+        run: make release -j4
+      - name: Run SQL test suite
+        run: make test
+      - name: Run HTTP integration tests
+        env:
+          D1_ACCOUNT_ID: ${{ secrets.D1_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          D1_ENDPOINT: ${{ secrets.D1_ENDPOINT }}
+        run: ./scripts/run_integration_tests.sh
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    if: ${{ secrets.D1_ACCOUNT_ID != '' && secrets.D1_DATABASE_ID != '' && secrets.D1_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Run coverage checks
+        env:
+          D1_ACCOUNT_ID: ${{ secrets.D1_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          D1_ENDPOINT: ${{ secrets.D1_ENDPOINT }}
+        run: ./scripts/coverage.sh
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: build/coverage.xml
+      - name: Upload coverage to Codecov (PR)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: build/coverage.xml
+          flags: d1
+          name: d1-pr-coverage
+          fail_ci_if_error: true
+          verbose: true
