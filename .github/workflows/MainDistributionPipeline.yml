@@ -59,7 +59,7 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-tidy clang-format-11 ccache ninja-build
+          sudo apt-get install -y clang-tidy clang-format ccache ninja-build
       - name: Initialize ccache
         run: |
           ccache --max-size=2G
