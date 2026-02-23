@@ -29,7 +29,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 1
           submodules: recursive
+      - name: Fetch PR base branch for diff lint
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
       - name: Restore Python tool cache
         uses: actions/cache@v4
         with:
@@ -68,17 +73,20 @@ jobs:
         env:
           LINT_TIDY_DIFF: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           GIT_BASE_BRANCH: ${{ github.base_ref || 'main' }}
+          LINT_SKIP_RELEASE_BUILD: "1"
         run: ./scripts/lint_strict.sh
-      - name: Run SQL test suite
-        run: make test
-      - name: Run HTTP integration tests
-        if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
-        run: ./scripts/run_integration_tests.sh
-      - name: Run coverage checks
+      - name: Build + run SQL test suite (no live D1 secrets)
+        if: ${{ steps.d1_secrets.outputs.enabled != 'true' }}
+        env:
+          TREAT_WARNINGS_AS_ERRORS: "1"
+        run: |
+          make release
+          make test
+      - name: Run coverage checks (includes live integration tests)
         if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
         run: ./scripts/coverage.sh
       - name: Upload coverage artifact
-        if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
+        if: ${{ github.event_name == 'pull_request' && steps.d1_secrets.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
