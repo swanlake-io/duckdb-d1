@@ -43,6 +43,21 @@ SELECT * FROM d1_query('d1_unreachable', 'INSERT INTO t VALUES (1)')
 d1_query only supports read queries
 
 statement error
+SELECT * FROM d1_raw('d1_unreachable', 'DELETE FROM t')
+----
+d1_raw only supports read queries
+
+statement error
+SELECT * FROM d1_tables(NULL)
+----
+d1_tables argument "secret_name" cannot be NULL
+
+statement error
+SELECT * FROM d1_attach(NULL)
+----
+d1_attach argument "secret_name" cannot be NULL
+
+statement error
 SELECT * FROM d1_batch_execute('d1_unreachable', '{"sql": "select 1"}')
 ----
 Batch payload must be a JSON array
@@ -51,6 +66,11 @@ statement error
 SELECT * FROM d1_batch_execute('d1_unreachable', 1)
 ----
 Batch payload must be a JSON string, LIST or ARRAY
+
+statement error
+SELECT * FROM d1_batch_execute('d1_unreachable', '["select 1", {"foo": 1}]')
+----
+Batch entries must be strings or objects with a sql field
 
 statement error
 SELECT * FROM d1_scan('d1_unreachable', '')

@@ -46,45 +46,66 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
-    if: ${{ secrets.D1_ACCOUNT_ID != '' && secrets.D1_DATABASE_ID != '' && secrets.D1_API_TOKEN != '' }}
+    env:
+      D1_ACCOUNT_ID: ${{ secrets.D1_ACCOUNT_ID }}
+      D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+      D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+      D1_ENDPOINT: ${{ secrets.D1_ENDPOINT }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Check D1 secrets
+        id: d1_secrets
+        run: |
+          if [[ -n "${D1_ACCOUNT_ID}" && -n "${D1_DATABASE_ID}" && -n "${D1_API_TOKEN}" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping integration tests because D1 secrets are not configured."
+          fi
       - name: Build release binaries
+        if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
         run: make release -j4
       - name: Run SQL test suite
+        if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
         run: make test
       - name: Run HTTP integration tests
-        env:
-          D1_ACCOUNT_ID: ${{ secrets.D1_ACCOUNT_ID }}
-          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
-          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
-          D1_ENDPOINT: ${{ secrets.D1_ENDPOINT }}
+        if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
         run: ./scripts/run_integration_tests.sh
 
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
-    if: ${{ secrets.D1_ACCOUNT_ID != '' && secrets.D1_DATABASE_ID != '' && secrets.D1_API_TOKEN != '' }}
+    env:
+      D1_ACCOUNT_ID: ${{ secrets.D1_ACCOUNT_ID }}
+      D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+      D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+      D1_ENDPOINT: ${{ secrets.D1_ENDPOINT }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Check D1 secrets
+        id: d1_secrets
+        run: |
+          if [[ -n "${D1_ACCOUNT_ID}" && -n "${D1_DATABASE_ID}" && -n "${D1_API_TOKEN}" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping coverage because D1 secrets are not configured."
+          fi
       - name: Run coverage checks
-        env:
-          D1_ACCOUNT_ID: ${{ secrets.D1_ACCOUNT_ID }}
-          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
-          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
-          D1_ENDPOINT: ${{ secrets.D1_ENDPOINT }}
+        if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
         run: ./scripts/coverage.sh
       - name: Upload coverage artifact
+        if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
           path: build/coverage.xml
       - name: Upload coverage to Codecov (PR)
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name == 'pull_request' && steps.d1_secrets.outputs.enabled == 'true' }}
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
