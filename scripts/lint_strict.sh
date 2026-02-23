@@ -8,9 +8,20 @@ LINT_VENV="${ROOT_DIR}/build/lint-venv"
 if [[ ! -x "${LINT_VENV}/bin/python3" ]]; then
     python3 -m venv "${LINT_VENV}"
 fi
-"${LINT_VENV}/bin/python3" -m pip install --quiet --upgrade pip
-"${LINT_VENV}/bin/python3" -m pip install --quiet "black>=24" "clang-format==11.0.1" "cmakelang" "clang-tidy"
+if ! "${LINT_VENV}/bin/python3" -c "import black, cmakelang" >/dev/null 2>&1; then
+    "${LINT_VENV}/bin/python3" -m pip install --quiet "black>=24" "cmakelang"
+fi
 export PATH="${LINT_VENV}/bin:${PATH}"
+
+if ! command -v clang-tidy >/dev/null 2>&1; then
+    echo "clang-tidy is required for strict lint checks" >&2
+    exit 1
+fi
+
+if ! command -v clang-format-11 >/dev/null 2>&1 && ! command -v clang-format >/dev/null 2>&1; then
+    echo "clang-format (preferably clang-format-11) is required for strict lint checks" >&2
+    exit 1
+fi
 
 # Enforce deterministic formatting and strict static analysis on extension sources.
 make format-check

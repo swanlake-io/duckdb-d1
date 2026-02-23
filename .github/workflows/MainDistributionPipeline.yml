@@ -4,6 +4,8 @@
 name: Main Extension Distribution Pipeline
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -12,49 +14,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  duckdb-stable-build:
-    name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.4
-    with:
-      duckdb_version: v1.4.4
-      ci_tools_version: v1.4.4
-      extension_name: d1
-
-  code-quality-check:
-    name: Code Quality Check
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.4.4
-    with:
-      duckdb_version: v1.4.4
-      ci_tools_version: v1.4.4
-      extension_name: d1
-      format_checks: "format;tidy"
-
-  strict-lint:
-    name: Strict Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Install clang-tidy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-tidy
-      - name: Run strict lint checks
-        run: ./scripts/lint_strict.sh
-
   integration-tests:
-    name: Integration Tests
+    name: Validation
     runs-on: ubuntu-latest
     env:
       D1_ACCOUNT_ID: ${{ secrets.D1_ACCOUNT_ID }}
       D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
       D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
       D1_ENDPOINT: ${{ secrets.D1_ENDPOINT }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      EXT_FLAGS: "-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Restore Python tool cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            build/lint-venv
+            build/coverage-venv
+          key: ${{ runner.os }}-python-tools-${{ hashFiles('scripts/lint_strict.sh', 'scripts/coverage.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-python-tools-
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-ccache-${{ hashFiles('CMakeLists.txt', 'extension_config.cmake', 'vcpkg.json', 'src/**', 'scripts/lint_strict.sh', 'scripts/coverage.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
       - name: Check D1 secrets
         id: d1_secrets
         run: |
@@ -62,39 +52,23 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping integration tests because D1 secrets are not configured."
+            echo "D1 secrets are not configured. Live integration and coverage will be skipped."
           fi
-      - name: Build release binaries
-        if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
-        run: make release -j4
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy clang-format-11 ccache
+      - name: Initialize ccache
+        run: |
+          ccache --max-size=2G
+          ccache --zero-stats
+      - name: Run strict lint checks
+        run: ./scripts/lint_strict.sh
       - name: Run SQL test suite
-        if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
         run: make test
       - name: Run HTTP integration tests
         if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
         run: ./scripts/run_integration_tests.sh
-
-  coverage:
-    name: Coverage
-    runs-on: ubuntu-latest
-    env:
-      D1_ACCOUNT_ID: ${{ secrets.D1_ACCOUNT_ID }}
-      D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
-      D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
-      D1_ENDPOINT: ${{ secrets.D1_ENDPOINT }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Check D1 secrets
-        id: d1_secrets
-        run: |
-          if [[ -n "${D1_ACCOUNT_ID}" && -n "${D1_DATABASE_ID}" && -n "${D1_API_TOKEN}" ]]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping coverage because D1 secrets are not configured."
-          fi
       - name: Run coverage checks
         if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
         run: ./scripts/coverage.sh
@@ -114,3 +88,15 @@ jobs:
           name: d1-pr-coverage
           fail_ci_if_error: true
           verbose: true
+      - name: Show ccache stats
+        if: ${{ always() }}
+        run: ccache --show-stats
+
+  duckdb-stable-build:
+    name: Build extension binaries
+    needs: integration-tests
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.4
+    with:
+      duckdb_version: v1.4.4
+      ci_tools_version: v1.4.4
+      extension_name: d1
