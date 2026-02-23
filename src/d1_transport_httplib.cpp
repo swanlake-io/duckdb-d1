@@ -102,7 +102,8 @@ D1HTTPResponse D1HttpLibTransport::PostJSON(const string &url, const unordered_m
 		auto res = client.Post(parsed.path, req_headers, body, "application/json");
 		if (!res) {
 			last_response = D1HTTPResponse();
-			last_response.error = "HTTP request failed";
+			last_response.error =
+			    StringUtil::Format("HTTP request failed (%s)", httplib_ns::to_string(res.error()).c_str());
 		} else {
 			last_response = D1HTTPResponse();
 			last_response.status_code = res->status;

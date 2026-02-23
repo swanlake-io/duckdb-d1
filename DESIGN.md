@@ -334,12 +334,7 @@ src/
 
 test/
   sql/
-    d1_query.test
-    d1_execute.test
-    d1_attach_readonly.test
-    d1_pushdown.test
-  integration/
-    d1_live.test
+    d1.test
 ```
 
 ## 7. User-Facing API Proposal
@@ -486,27 +481,16 @@ Include in message:
 
 ## 13. Testing Plan
 
-## 13.1 Unit tests
+## 13.1 SQL tests (single source of truth)
 
-- request serialization:
-  - single query
-  - batch payload
-  - params encoding
-- response parser:
-  - query/raw success envelopes
-  - error envelopes
-  - mixed/missing field behavior
-- type mapping:
-  - numeric boundaries
-  - null/mixed columns
+- all extension validation lives in `test/sql/*.test`
+- no separate shell assertion logic and no C++ unit-test suite for now
+- current suite (`test/sql/d1.test`) includes:
+  - live read/write flows (`d1_query`, `d1_raw`, `d1_execute`, `d1_batch_execute`, `d1_scan`, `d1_attach`)
+  - attach/read verification
+  - binder/runtime guardrails and invalid input coverage
 
-## 13.2 SQL tests (offline)
-
-- function registration and binder behavior
-- deterministic parser behavior with invalid-endpoint error assertions
-- attach/binder guardrails that do not require a live network call
-
-## 13.3 Integration tests (live D1, opt-in)
+## 13.2 Live D1 execution (required in CI)
 
 Environment variables:
 - `D1_ACCOUNT_ID`
@@ -519,6 +503,10 @@ Cases:
 - query/raw equivalence on simple tables
 - batch rollback behavior verification
 - overload/retry behavior (if testable)
+
+Execution path:
+- local: `make integration-test`
+- CI: coverage job runs SQLLogic tests against live D1 and uploads Codecov report on PRs
 
 ## 14. Delivery Plan (Phased)
 
@@ -723,7 +711,7 @@ Execution mode is "no-question": keep delivering sequentially and only stop at h
 
 #### Phase H: Hardening and release readiness
 
-1. Expand integration tests for real D1 opt-in env.
+1. Expand real-D1 SQLLogic tests under `test/sql/*.test`.
 2. Add concurrency and stress tests (queue overload, retries, throttling behavior).
 3. Raise coverage target from 80% to 85% after write-path stabilization.
 4. Add compatibility matrix table in README:
@@ -758,7 +746,7 @@ The extension is considered feature complete when all of the following are true:
 1. `ATTACH ... (TYPE d1)` supports practical read/write workflows at table level.
 2. Attached-table `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE AS`, and key DDL are available with explicit constraints.
 3. Pushdown, caching, retries, and error mapping are production-safe and documented.
-4. CI includes strict lint, unit/integration tests, and coverage gates passing consistently.
+4. CI includes strict lint, SQLLogic tests against live D1, and coverage gates passing consistently.
 5. User-facing docs include compatibility matrix and operational guidance equivalent in depth to postgres/sqlite extension docs.
 
 ### 18.6 Implementation Status (2026-02-23)

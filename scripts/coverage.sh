@@ -13,8 +13,7 @@ EXT_DEBUG_FLAGS='-DCMAKE_C_FLAGS=--coverage -DCMAKE_CXX_FLAGS=--coverage' \
 # Reset old coverage counters.
 find "${ROOT_DIR}/build/debug" -name '*.gcda' -delete
 
-# Run sqllogictest suite and HTTP integration suite.
-make test_debug
+# Run SQLLogic tests (all extension tests live under test/sql/*.test).
 DUCKDB_BIN="${ROOT_DIR}/build/debug/duckdb" scripts/run_integration_tests.sh
 
 # Resolve gcovr binary using an isolated virtualenv.

@@ -1,8 +1,113 @@
 # name: test/sql/d1.test
-# description: test d1 extension core binder/runtime behavior without mocks
+# description: test d1 extension against real Cloudflare D1 plus binder/runtime error paths
 # group: [sql]
 
 require d1
+
+require-env D1_ACCOUNT_ID
+
+require-env D1_DATABASE_ID
+
+require-env D1_API_TOKEN
+
+test-env D1_ENDPOINT https://api.cloudflare.com/client/v4
+
+test-env D1_RUN_TAG local
+
+set ignore_error_messages
+
+statement ok
+CREATE SECRET d1_live (
+    TYPE d1,
+    account_id '${D1_ACCOUNT_ID}',
+    database_id '${D1_DATABASE_ID}',
+    api_token '${D1_API_TOKEN}',
+    endpoint '${D1_ENDPOINT}'
+)
+
+statement ok
+ATTACH '' AS d1_live_attached (TYPE d1, SECRET d1_live, schema_cache_ttl 0)
+
+statement ok
+CREATE TABLE IF NOT EXISTS d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}(id INTEGER, name TEXT)
+
+statement ok
+DELETE FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}
+
+statement ok
+INSERT INTO d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG} VALUES (1, 'alice')
+
+statement ok
+INSERT INTO d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG} VALUES (2, 'bob')
+
+query I
+SELECT answer FROM d1_query('d1_live', 'SELECT 42 AS answer')
+----
+42
+
+query I
+SELECT answer FROM d1_raw('d1_live', 'SELECT 42 AS answer')
+----
+42
+
+query I
+SELECT success::INT FROM d1_execute('d1_live', 'SELECT 1')
+----
+1
+
+query I
+SELECT count(*) FROM d1_batch_execute('d1_live', '["select 1", "select 2"]')
+----
+2
+
+query I
+SELECT count(*) FROM d1_scan('d1_live', 'duckdb_d1_ci_${D1_RUN_TAG}')
+----
+2
+
+query I
+SELECT success::INT
+FROM d1_attach('d1_live', overwrite := true, include_views := false, schema := 'd1_live_views_${D1_RUN_TAG}')
+----
+1
+
+query I
+SELECT count(*) FROM d1_live_views_${D1_RUN_TAG}.duckdb_d1_ci_${D1_RUN_TAG}
+----
+2
+
+query I
+SELECT count(*) FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}
+----
+2
+
+statement ok
+UPDATE d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG} SET name = 'alice-updated' WHERE id = 1
+
+query T
+SELECT name FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG} WHERE id = 1
+----
+alice-updated
+
+statement ok
+DELETE FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG} WHERE id = 2
+
+query I
+SELECT count(*) FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}
+----
+1
+
+statement ok
+CREATE INDEX IF NOT EXISTS idx_duckdb_d1_ci_${D1_RUN_TAG}_name ON d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}(name)
+
+statement ok
+DROP INDEX IF EXISTS d1_live_attached.idx_duckdb_d1_ci_${D1_RUN_TAG}_name
+
+statement ok
+DELETE FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}
+
+statement ok
+DETACH d1_live_attached
 
 statement ok
 CREATE SECRET d1_bad_port (
@@ -33,6 +138,16 @@ SELECT * FROM d1_query('d1_unreachable', 'SELECT 1')
 D1 HTTP request failed
 
 statement error
+SELECT * FROM d1_query(NULL, 'SELECT 1')
+----
+d1_query argument "secret_name" cannot be NULL
+
+statement error
+SELECT * FROM d1_query('d1_unreachable', '')
+----
+d1_query argument "sql" cannot be empty
+
+statement error
 SELECT * FROM d1_execute('missing_secret', 'SELECT 1')
 ----
 Secret with name "missing_secret" not found
@@ -48,14 +163,29 @@ SELECT * FROM d1_raw('d1_unreachable', 'DELETE FROM t')
 d1_raw only supports read queries
 
 statement error
+SELECT * FROM d1_raw('d1_unreachable', '')
+----
+d1_raw argument "sql" cannot be empty
+
+statement error
 SELECT * FROM d1_tables(NULL)
 ----
 d1_tables argument "secret_name" cannot be NULL
 
 statement error
+SELECT * FROM d1_tables()
+----
+No function matches the given name and argument types 'd1_tables()'
+
+statement error
 SELECT * FROM d1_attach(NULL)
 ----
 d1_attach argument "secret_name" cannot be NULL
+
+statement error
+SELECT * FROM d1_attach()
+----
+No function matches the given name and argument types 'd1_attach()'
 
 statement error
 SELECT * FROM d1_batch_execute('d1_unreachable', '{"sql": "select 1"}')
@@ -76,6 +206,16 @@ statement error
 SELECT * FROM d1_scan('d1_unreachable', '')
 ----
 d1_scan argument "table_name" cannot be empty
+
+statement error
+SELECT * FROM d1_scan('d1_unreachable', NULL)
+----
+d1_scan argument "table_name" cannot be NULL
+
+statement error
+SELECT * FROM d1_execute('d1_unreachable', NULL)
+----
+d1_execute argument "sql" cannot be NULL
 
 statement ok
 SET enable_external_access = false

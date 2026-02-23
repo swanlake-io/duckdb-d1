@@ -15,10 +15,10 @@ include extension-ci-tools/makefiles/duckdb_extension.Makefile
 lint-strict:
 	./scripts/lint_strict.sh
 
-integration-test:
+integration-test: release
 	./scripts/run_integration_tests.sh
 
-live-d1-test:
+live-d1-test: release
 	./scripts/run_live_d1_tests.sh
 
 coverage:

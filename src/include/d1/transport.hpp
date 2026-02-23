@@ -17,9 +17,9 @@ struct D1HTTPResponse {
 
 struct D1HTTPOptions {
 	idx_t timeout_seconds = 30;
-	idx_t retries = 3;
-	idx_t retry_wait_ms = 100;
-	double retry_backoff = 2.0;
+	idx_t retries = 5;
+	idx_t retry_wait_ms = 200;
+	double retry_backoff = 1.8;
 	bool follow_redirects = true;
 };
 

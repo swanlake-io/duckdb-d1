@@ -52,19 +52,15 @@ jobs:
           key: ${{ runner.os }}-ccache-${{ hashFiles('CMakeLists.txt', 'extension_config.cmake', 'vcpkg.json', 'src/**', 'scripts/lint_strict.sh', 'scripts/coverage.sh') }}
           restore-keys: |
             ${{ runner.os }}-ccache-
-      - name: Check D1 secrets
-        id: d1_secrets
-        run: |
-          if [[ -n "${D1_ACCOUNT_ID}" && -n "${D1_DATABASE_ID}" && -n "${D1_API_TOKEN}" ]]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "D1 secrets are not configured. Live integration and coverage will be skipped."
-          fi
       - name: Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y clang-tidy clang-format ccache ninja-build
+      - name: Validate D1 secrets
+        run: |
+          : "${D1_ACCOUNT_ID:?D1_ACCOUNT_ID is required}"
+          : "${D1_DATABASE_ID:?D1_DATABASE_ID is required}"
+          : "${D1_API_TOKEN:?D1_API_TOKEN is required}"
       - name: Initialize ccache
         run: |
           ccache --max-size=2G
@@ -74,22 +70,16 @@ jobs:
           LINT_TIDY_DIFF: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           GIT_BASE_BRANCH: ${{ github.base_ref || 'main' }}
         run: ./scripts/lint_strict.sh
-      - name: Build + run SQL test suite (no live D1 secrets)
-        if: ${{ steps.d1_secrets.outputs.enabled != 'true' }}
-        run: |
-          make release
-          make test
       - name: Run coverage checks (includes live integration tests)
-        if: ${{ steps.d1_secrets.outputs.enabled == 'true' }}
         run: ./scripts/coverage.sh
       - name: Upload coverage artifact
-        if: ${{ github.event_name == 'pull_request' && steps.d1_secrets.outputs.enabled == 'true' }}
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
           path: build/coverage.xml
       - name: Upload coverage to Codecov (PR)
-        if: ${{ github.event_name == 'pull_request' && steps.d1_secrets.outputs.enabled == 'true' }}
+        if: ${{ github.event_name == 'pull_request' }}
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
