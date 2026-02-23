@@ -25,9 +25,22 @@ fi
 
 # Enforce deterministic formatting and strict static analysis on extension sources.
 make format-check
-TIDY_CHECKS='-*,clang-analyzer-*,bugprone-*,performance-*' make tidy-check
+
+TIDY_RULESET='-*,clang-analyzer-*,bugprone-*,performance-*'
+if [[ "${LINT_TIDY_DIFF:-0}" == "1" ]]; then
+    BASE_BRANCH="${GIT_BASE_BRANCH:-main}"
+    if git rev-parse --verify "origin/${BASE_BRANCH}" >/dev/null 2>&1; then
+        TIDY_CHECKS="${TIDY_RULESET}" GIT_BASE_BRANCH="${BASE_BRANCH}" make tidy-check-diff
+    else
+        echo "Base branch origin/${BASE_BRANCH} not found, falling back to full tidy-check"
+        TIDY_CHECKS="${TIDY_RULESET}" make tidy-check
+    fi
+else
+    TIDY_CHECKS="${TIDY_RULESET}" make tidy-check
+fi
 
 # Ensure no compiler warnings slip through for extension code.
-TREAT_WARNINGS_AS_ERRORS=1 make release -j4
+BUILD_JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
+CMAKE_BUILD_PARALLEL_LEVEL="${BUILD_JOBS}" TREAT_WARNINGS_AS_ERRORS=1 make release -j"${BUILD_JOBS}"
 
 echo "Strict lint checks passed"
