@@ -92,12 +92,12 @@ if [[ "${RUN_TIDY}" == "1" ]]; then
         env TIDY_THREADS="${TIDY_THREADS}" TIDY_CHECKS="${TIDY_RULESET}" make tidy-check
 fi
 
-if [[ "${LINT_SKIP_RELEASE_BUILD:-0}" != "1" ]]; then
+if [[ "${LINT_SKIP_RELEASE_BUILD:-1}" != "1" ]]; then
     # Ensure no compiler warnings slip through for extension code.
     run_with_heartbeat "release build (warnings as errors)" \
         env CMAKE_BUILD_PARALLEL_LEVEL="${CPU_COUNT}" TREAT_WARNINGS_AS_ERRORS=1 make release
 else
-    log "Skipping release build because LINT_SKIP_RELEASE_BUILD=1"
+    log "Skipping full release build (strict mode is extension-only)"
 fi
 
 log "Strict lint checks passed"

@@ -8,7 +8,6 @@ BUILD_JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
 # Rebuild with gcov instrumentation.
 EXT_DEBUG_FLAGS='-DCMAKE_C_FLAGS=--coverage -DCMAKE_CXX_FLAGS=--coverage' \
     CMAKE_BUILD_PARALLEL_LEVEL="${BUILD_JOBS}" \
-    TREAT_WARNINGS_AS_ERRORS=1 \
     make debug
 
 # Reset old coverage counters.

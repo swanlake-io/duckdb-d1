@@ -36,6 +36,15 @@ target_compile_definitions(${LOADABLE_EXTENSION_NAME} PRIVATE CPPHTTPLIB_OPENSSL
 target_link_libraries(${EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto)
 target_link_libraries(${LOADABLE_EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto)
 
+# Keep strict warning policy scoped to this extension only.
+if(MSVC)
+  target_compile_options(${EXTENSION_NAME} PRIVATE /WX)
+  target_compile_options(${LOADABLE_EXTENSION_NAME} PRIVATE /WX)
+else()
+  target_compile_options(${EXTENSION_NAME} PRIVATE -Werror)
+  target_compile_options(${LOADABLE_EXTENSION_NAME} PRIVATE -Werror)
+endif()
+
 install(
   TARGETS ${EXTENSION_NAME}
   EXPORT "${DUCKDB_EXPORT_SET}"
