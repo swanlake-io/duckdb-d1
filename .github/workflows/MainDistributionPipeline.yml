@@ -26,6 +26,7 @@ jobs:
       EXT_FLAGS: "-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
       GEN: ninja
       CMAKE_BUILD_PARALLEL_LEVEL: "4"
+      COVERAGE_BUILD_JOBS: "2"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -35,6 +36,18 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         run: |
           git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: false
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
       - name: Restore Python tool cache
         uses: actions/cache@v4
         with:
