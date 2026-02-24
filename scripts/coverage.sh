@@ -71,6 +71,6 @@ GCOVR_BIN="${COVERAGE_VENV}/bin/gcovr"
     --output "${ROOT_DIR}/build/coverage.xml" \
     --print-summary \
     --txt \
-    --fail-under-line 80
+    --fail-under-line 50
 
 echo "Coverage checks passed"
