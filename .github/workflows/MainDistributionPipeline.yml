@@ -4,6 +4,8 @@
 name: Main Extension Distribution Pipeline
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -12,19 +14,103 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  integration-tests:
+    name: Validation
+    runs-on: ubuntu-latest
+    env:
+      D1_ACCOUNT_ID: ${{ secrets.D1_ACCOUNT_ID }}
+      D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+      D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+      D1_ENDPOINT: ${{ secrets.D1_ENDPOINT }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      EXT_FLAGS: "-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+      GEN: ninja
+      CMAKE_BUILD_PARALLEL_LEVEL: "4"
+      COVERAGE_BUILD_JOBS: "2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: recursive
+      - name: Fetch PR base branch for diff lint
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: false
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Restore Python tool cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            build/lint-venv
+            build/coverage-venv
+          key: ${{ runner.os }}-python-tools-${{ hashFiles('scripts/lint_strict.sh', 'scripts/coverage.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-python-tools-
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ${{ runner.os }}-ccache-${{ hashFiles('CMakeLists.txt', 'extension_config.cmake', 'vcpkg.json', 'src/**', 'scripts/lint_strict.sh', 'scripts/coverage.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-tidy clang-format ccache ninja-build
+      - name: Validate D1 secrets
+        run: |
+          : "${D1_ACCOUNT_ID:?D1_ACCOUNT_ID is required}"
+          : "${D1_DATABASE_ID:?D1_DATABASE_ID is required}"
+          : "${D1_API_TOKEN:?D1_API_TOKEN is required}"
+      - name: Initialize ccache
+        run: |
+          ccache --max-size=2G
+          ccache --zero-stats
+      - name: Run strict lint checks
+        env:
+          LINT_TIDY_DIFF: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+          GIT_BASE_BRANCH: ${{ github.base_ref || 'main' }}
+        run: ./scripts/lint_strict.sh
+      - name: Run coverage checks (includes live integration tests)
+        run: ./scripts/coverage.sh
+      - name: Upload coverage artifact
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: build/coverage.xml
+      - name: Upload coverage to Codecov (PR)
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: build/coverage.xml
+          flags: d1
+          name: d1-pr-coverage
+          fail_ci_if_error: true
+          verbose: true
+      - name: Show ccache stats
+        if: ${{ always() }}
+        run: ccache --show-stats
+
   duckdb-stable-build:
     name: Build extension binaries
+    needs: integration-tests
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.4.4
     with:
       duckdb_version: v1.4.4
       ci_tools_version: v1.4.4
-      extension_name: quack
-
-  code-quality-check:
-    name: Code Quality Check
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.4.4
-    with:
-      duckdb_version: v1.4.4
-      ci_tools_version: v1.4.4
-      extension_name: quack
-      format_checks: 'format;tidy'
+      extension_name: d1

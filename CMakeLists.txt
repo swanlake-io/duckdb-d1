@@ -1,27 +1,49 @@
 cmake_minimum_required(VERSION 3.5)
 
-# Set extension name here
-set(TARGET_NAME quack)
-
-# DuckDB's extension distribution supports vcpkg. As such, dependencies can be added in ./vcpkg.json and then
-# used in cmake with find_package. Feel free to remove or replace with other dependencies.
-# Note that it should also be removed from vcpkg.json to prevent needlessly installing it..
-find_package(OpenSSL REQUIRED)
-
+set(TARGET_NAME d1)
 set(EXTENSION_NAME ${TARGET_NAME}_extension)
 set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 project(${TARGET_NAME})
-include_directories(src/include)
 
-set(EXTENSION_SOURCES src/quack_extension.cpp)
+find_package(OpenSSL REQUIRED)
+
+include_directories(src/include)
+include_directories(duckdb/third_party/httplib)
+include_directories(third_party)
+
+set(EXTENSION_SOURCES
+    src/d1_extension.cpp
+    src/d1_secret.cpp
+    src/d1_transport_httplib.cpp
+    src/d1_client.cpp
+    src/d1_functions.cpp
+    src/d1_sql_utils.cpp
+    src/d1_storage.cpp
+    src/d1_catalog.cpp
+    src/d1_schema_entry.cpp
+    src/d1_table_entry.cpp
+    src/d1_scan.cpp
+    src/d1_transaction.cpp
+    src/d1_transaction_manager.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
-# Link OpenSSL in both the static library as the loadable extension
+target_compile_definitions(${EXTENSION_NAME} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+target_compile_definitions(${LOADABLE_EXTENSION_NAME} PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+
 target_link_libraries(${EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto)
 target_link_libraries(${LOADABLE_EXTENSION_NAME} OpenSSL::SSL OpenSSL::Crypto)
+
+# Keep strict warning policy scoped to this extension only.
+if(MSVC)
+  target_compile_options(${EXTENSION_NAME} PRIVATE /WX)
+  target_compile_options(${LOADABLE_EXTENSION_NAME} PRIVATE /WX)
+else()
+  target_compile_options(${EXTENSION_NAME} PRIVATE -Werror)
+  target_compile_options(${LOADABLE_EXTENSION_NAME} PRIVATE -Werror)
+endif()
 
 install(
   TARGETS ${EXTENSION_NAME}

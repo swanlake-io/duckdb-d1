@@ -1,0 +1,739 @@
+# name: test/sql/d1.test
+# description: test d1 extension against real Cloudflare D1 plus binder/runtime error paths
+# group: [sql]
+
+require d1
+
+require-env D1_ACCOUNT_ID
+
+require-env D1_DATABASE_ID
+
+require-env D1_API_TOKEN
+
+test-env D1_ENDPOINT https://api.cloudflare.com/client/v4
+
+test-env D1_RUN_TAG local
+
+set ignore_error_messages
+
+statement ok
+CREATE SECRET d1_live (
+    TYPE d1,
+    account_id '${D1_ACCOUNT_ID}',
+    database_id '${D1_DATABASE_ID}',
+    api_token '${D1_API_TOKEN}',
+    endpoint '${D1_ENDPOINT}'
+)
+
+statement ok
+CREATE SECRET d1_live_slash (
+    TYPE d1,
+    account_id '${D1_ACCOUNT_ID}',
+    database_id '${D1_DATABASE_ID}',
+    api_token '${D1_API_TOKEN}',
+    endpoint '${D1_ENDPOINT}/'
+)
+
+statement ok
+ATTACH '' AS d1_live_attached (TYPE d1, SECRET d1_live, schema_cache_ttl 0)
+
+statement ok
+DROP TABLE IF EXISTS d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}
+
+statement ok
+CREATE TABLE d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}(id INTEGER, name TEXT)
+
+statement ok
+DELETE FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}
+
+statement ok
+INSERT INTO d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG} VALUES (1, 'alice')
+
+statement ok
+INSERT INTO d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG} VALUES (2, 'bob')
+
+query I
+SELECT answer FROM d1_query('d1_live', 'SELECT 42 AS answer')
+----
+42
+
+query I
+SELECT answer FROM d1_query('d1_live_slash', 'SELECT 7 AS answer')
+----
+7
+
+query I
+SELECT answer FROM d1_raw('d1_live', 'SELECT 42 AS answer')
+----
+42
+
+query I
+SELECT success::INT FROM d1_execute('d1_live', 'SELECT 1')
+----
+1
+
+query I
+SELECT count(*) FROM d1_batch_execute('d1_live', '["select 1", "select 2"]')
+----
+2
+
+query I
+SELECT count(*) FROM d1_scan('d1_live', 'duckdb_d1_ci_${D1_RUN_TAG}')
+----
+2
+
+query I
+SELECT success::INT
+FROM d1_attach('d1_live', overwrite := true, include_views := false, schema := 'd1_live_views_${D1_RUN_TAG}')
+----
+1
+
+query I
+SELECT count(*) FROM d1_live_views_${D1_RUN_TAG}.duckdb_d1_ci_${D1_RUN_TAG}
+----
+2
+
+query I
+SELECT count(*) FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}
+----
+2
+
+statement ok
+UPDATE d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG} SET name = 'alice-updated' WHERE id = 1
+
+query T
+SELECT name FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG} WHERE id = 1
+----
+alice-updated
+
+statement ok
+DELETE FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG} WHERE id = 2
+
+query I
+SELECT count(*) FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}
+----
+1
+
+statement ok
+CREATE INDEX IF NOT EXISTS idx_duckdb_d1_ci_${D1_RUN_TAG}_name ON d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}(name)
+
+statement ok
+DROP INDEX IF EXISTS d1_live_attached.idx_duckdb_d1_ci_${D1_RUN_TAG}_name
+
+statement ok
+DELETE FROM d1_live_attached.duckdb_d1_ci_${D1_RUN_TAG}
+
+statement ok
+DETACH d1_live_attached
+
+statement ok
+ATTACH '' AS d1_cov (TYPE d1, SECRET d1_live, schema_cache_ttl 0)
+
+statement ok
+DROP VIEW IF EXISTS d1_cov.duckdb_d1_cov_view_${D1_RUN_TAG}
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_ctas_${D1_RUN_TAG}
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_rename_b_${D1_RUN_TAG}
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_rename_a_${D1_RUN_TAG}
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_cov_${D1_RUN_TAG}
+
+statement ok
+CREATE TABLE d1_cov.duckdb_d1_cov_${D1_RUN_TAG}(
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    score DOUBLE,
+    note TEXT,
+    cnt BIGINT DEFAULT 7
+)
+
+statement ok
+DELETE FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG}
+
+statement ok
+INSERT INTO d1_cov.duckdb_d1_cov_${D1_RUN_TAG}(id, name, score, note, cnt) VALUES
+    (1, 'alpha', 1.5, NULL, 10),
+    (2, 'beta', 2.5, 'x', 20),
+    (3, 'gamma', 3.5, 'y', 30)
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id = 1
+----
+1
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id <> 1
+----
+2
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id < 3
+----
+2
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id <= 2
+----
+2
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id > 1
+----
+2
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id >= 2
+----
+2
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id IN (1, 3)
+----
+2
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE note IS NULL
+----
+1
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE note IS NOT NULL
+----
+2
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE (id = 1 OR id = 2) AND note IS NOT NULL
+----
+1
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE rowid > 0
+----
+3
+
+query I
+SELECT count(*) FROM d1_scan('d1_live', 'duckdb_d1_cov_${D1_RUN_TAG}', filter := 'id >= 2', max_rows := 1)
+----
+1
+
+query T
+SELECT typeof(id) FROM d1_scan('d1_live', 'duckdb_d1_cov_${D1_RUN_TAG}', all_varchar := true) LIMIT 1
+----
+VARCHAR
+
+query I
+SELECT answer FROM d1_query('d1_live', 'SELECT ? AS answer', params := [123])
+----
+123
+
+query I
+SELECT count(*) FROM d1_query('d1_live', 'SELECT 1 AS answer WHERE 1 = 0')
+----
+0
+
+query T
+SELECT answer FROM d1_query('d1_live', 'SELECT ? AS answer', params := [true])
+----
+true
+
+query I
+SELECT answer FROM d1_query('d1_live', 'SELECT ? AS answer', params := [CAST(1 AS UINTEGER)])
+----
+1
+
+query T
+SELECT answer FROM d1_query('d1_live', 'SELECT ? AS answer', params := [CAST(1.23 AS DECIMAL(10,2))])
+----
+1.23
+
+query T
+SELECT answer FROM d1_query('d1_live', 'SELECT ? AS answer', params := [42], all_varchar := true)
+----
+42
+
+query I
+SELECT answer FROM d1_raw('d1_live', 'SELECT ? AS answer', params := [456])
+----
+456
+
+query I
+SELECT count(*) FROM d1_batch_execute('d1_live', ['select 1', 'select 2', 'select 3'])
+----
+3
+
+query I
+SELECT count(*) FROM d1_batch_execute('d1_live', CAST(['select 1', 'select 2'] AS VARCHAR[2]))
+----
+2
+
+query I
+SELECT count(*) FROM d1_batch_execute('d1_live', [{'sql': 'select 1'}, {'sql': 'select 2'}])
+----
+2
+
+query I
+SELECT count(*) FROM d1_batch_execute('d1_live', '[{"sql":"select ? as x","params":[1]},{"sql":"select ? as y","params":["abc"]}]')
+----
+2
+
+query I
+SELECT CAST(changes AS BIGINT) FROM d1_execute(
+    'd1_live',
+    'UPDATE duckdb_d1_cov_${D1_RUN_TAG} SET name = ? WHERE id = ?',
+    params := ['alpha-updated', '1']
+)
+----
+1
+
+query T
+SELECT name FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id = 1
+----
+alpha-updated
+
+query I
+SELECT count(*) FROM d1_execute(
+    'd1_live',
+    'CREATE VIEW IF NOT EXISTS duckdb_d1_cov_view_${D1_RUN_TAG} AS SELECT id, name FROM duckdb_d1_cov_${D1_RUN_TAG}'
+)
+----
+1
+
+query I
+SELECT count(*) FROM d1_tables('d1_live', include_views := false) WHERE name = 'duckdb_d1_cov_view_${D1_RUN_TAG}'
+----
+0
+
+query I
+SELECT count(*) FROM d1_tables('d1_live', include_views := true) WHERE name = 'duckdb_d1_cov_view_${D1_RUN_TAG}'
+----
+1
+
+query I
+SELECT success::INT
+FROM d1_attach('d1_live', overwrite := true, include_views := true, schema := 'd1_cov_views_${D1_RUN_TAG}')
+----
+1
+
+query I
+SELECT count(*) FROM d1_cov_views_${D1_RUN_TAG}.duckdb_d1_cov_${D1_RUN_TAG}
+----
+3
+
+query I
+SELECT count(*) FROM d1_cov_views_${D1_RUN_TAG}.duckdb_d1_cov_view_${D1_RUN_TAG}
+----
+3
+
+query I
+SELECT success::INT
+FROM d1_attach('d1_live', overwrite := false, include_views := true, schema := 'd1_cov_views_${D1_RUN_TAG}')
+----
+1
+
+statement ok
+CREATE TABLE IF NOT EXISTS d1_cov.duckdb_d1_ctas_${D1_RUN_TAG} AS
+SELECT id, name FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG}
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_ctas_${D1_RUN_TAG}
+----
+3
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_conflict_${D1_RUN_TAG}
+
+statement ok
+CREATE TABLE d1_cov.duckdb_d1_conflict_${D1_RUN_TAG}(id INTEGER)
+
+statement ok
+CREATE TABLE IF NOT EXISTS d1_cov.duckdb_d1_conflict_${D1_RUN_TAG}(id INTEGER)
+
+statement ok
+CREATE OR REPLACE TABLE d1_cov.duckdb_d1_conflict_${D1_RUN_TAG}(id INTEGER, name TEXT)
+
+statement error
+CREATE TABLE d1_cov.duckdb_d1_conflict_${D1_RUN_TAG}(id INTEGER)
+----
+table already exists
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_conflict_${D1_RUN_TAG}
+
+statement ok
+DROP VIEW IF EXISTS d1_cov.duckdb_d1_cov_plain_view_${D1_RUN_TAG}
+
+statement ok
+CREATE VIEW IF NOT EXISTS d1_cov.duckdb_d1_cov_plain_view_${D1_RUN_TAG} AS
+SELECT id FROM duckdb_d1_cov_${D1_RUN_TAG}
+
+statement ok
+DROP VIEW IF EXISTS d1_cov.duckdb_d1_cov_alias_view_${D1_RUN_TAG}
+
+statement ok
+CREATE VIEW d1_cov.duckdb_d1_cov_alias_view_${D1_RUN_TAG}(cid, cname) AS
+SELECT id, name FROM duckdb_d1_cov_${D1_RUN_TAG}
+
+statement ok
+DROP VIEW IF EXISTS d1_cov.duckdb_d1_cov_alias_view_${D1_RUN_TAG}
+
+statement ok
+DROP VIEW IF EXISTS d1_cov.duckdb_d1_cov_plain_view_${D1_RUN_TAG}
+
+statement ok
+ALTER TABLE d1_cov.duckdb_d1_cov_${D1_RUN_TAG} ADD COLUMN extra INTEGER
+
+statement ok
+UPDATE d1_cov.duckdb_d1_cov_${D1_RUN_TAG} SET extra = 9 WHERE id = 1
+
+query I
+SELECT extra FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id = 1
+----
+9
+
+statement ok
+ALTER TABLE d1_cov.duckdb_d1_cov_${D1_RUN_TAG} RENAME COLUMN extra TO extra2
+
+query I
+SELECT extra2 FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id = 1
+----
+9
+
+statement ok
+ALTER TABLE d1_cov.duckdb_d1_cov_${D1_RUN_TAG} DROP COLUMN extra2
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_rename_b_${D1_RUN_TAG}
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_rename_a_${D1_RUN_TAG}
+
+statement ok
+CREATE TABLE d1_cov.duckdb_d1_rename_a_${D1_RUN_TAG}(id INTEGER, v TEXT)
+
+statement ok
+INSERT INTO d1_cov.duckdb_d1_rename_a_${D1_RUN_TAG} VALUES (1, 'r1')
+
+statement ok
+ALTER TABLE d1_cov.duckdb_d1_rename_a_${D1_RUN_TAG} RENAME TO duckdb_d1_rename_b_${D1_RUN_TAG}
+
+query I
+SELECT count(*) FROM d1_cov.duckdb_d1_rename_b_${D1_RUN_TAG}
+----
+1
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_composite_${D1_RUN_TAG}
+
+statement ok
+CREATE TABLE d1_cov.duckdb_d1_composite_${D1_RUN_TAG}(
+    id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    v DOUBLE,
+    PRIMARY KEY(id, name)
+)
+
+statement ok
+INSERT INTO d1_cov.duckdb_d1_composite_${D1_RUN_TAG} VALUES (1, 'k1', 1.0)
+
+statement ok
+ATTACH '' AS d1_cov_ttl (TYPE d1, SECRET d1_live, schema_cache_ttl 60)
+
+query I
+SELECT count(*) FROM d1_cov_ttl.duckdb_d1_composite_${D1_RUN_TAG}
+----
+1
+
+query I
+SELECT count(*) FROM d1_cov_ttl.duckdb_d1_composite_${D1_RUN_TAG}
+----
+1
+
+query I
+SELECT CAST(count(*) >= 1 AS INTEGER) FROM (SHOW TABLES FROM d1_cov_ttl)
+----
+1
+
+statement ok
+DETACH d1_cov_ttl
+
+statement ok
+CREATE UNIQUE INDEX IF NOT EXISTS idx_duckdb_d1_cov_unique_${D1_RUN_TAG}
+ON d1_cov.duckdb_d1_cov_${D1_RUN_TAG}(id)
+
+statement ok
+DROP INDEX IF EXISTS d1_cov.idx_duckdb_d1_cov_unique_${D1_RUN_TAG}
+
+statement ok
+CREATE INDEX IF NOT EXISTS idx_duckdb_d1_cov_multi_${D1_RUN_TAG}
+ON d1_cov.duckdb_d1_cov_${D1_RUN_TAG}(id, name)
+
+statement ok
+CREATE INDEX IF NOT EXISTS idx_duckdb_d1_cov_expr_${D1_RUN_TAG}
+ON d1_cov.duckdb_d1_cov_${D1_RUN_TAG}(lower(name))
+
+statement ok
+DROP INDEX IF EXISTS d1_cov.idx_duckdb_d1_cov_expr_${D1_RUN_TAG}
+
+statement ok
+DROP INDEX IF EXISTS d1_cov.idx_duckdb_d1_cov_multi_${D1_RUN_TAG}
+
+statement ok
+ATTACH '' AS d1_ro (TYPE d1, SECRET d1_live, read_only true, schema_cache_ttl 0)
+
+statement error
+CREATE TABLE d1_ro.duckdb_d1_ro_${D1_RUN_TAG}(id INTEGER)
+----
+read-only mode
+
+statement ok
+DETACH d1_ro
+
+statement error
+CREATE SCHEMA d1_cov.other_schema_${D1_RUN_TAG}
+----
+single schema
+
+statement error
+DROP SCHEMA d1_cov.main
+----
+do not support dropping schemas
+
+statement error
+CREATE SEQUENCE d1_cov.duckdb_d1_seq_${D1_RUN_TAG}
+----
+do not support creating sequences
+
+statement error
+CREATE OR REPLACE MACRO d1_cov.duckdb_d1_macro_${D1_RUN_TAG}(x) AS x + 1
+----
+creating functions
+
+statement error
+CREATE TYPE d1_cov.duckdb_d1_type_${D1_RUN_TAG} AS ENUM ('sad', 'ok')
+----
+creating types
+
+statement error
+INSERT INTO d1_cov.duckdb_d1_cov_view_${D1_RUN_TAG} VALUES (10, 'bad')
+----
+Cannot insert into D1 view
+
+statement error
+DELETE FROM d1_cov.duckdb_d1_cov_view_${D1_RUN_TAG}
+----
+Cannot delete from D1 view
+
+statement error
+UPDATE d1_cov.duckdb_d1_cov_view_${D1_RUN_TAG} SET name = 'bad'
+----
+Cannot update D1 view
+
+statement error
+INSERT INTO d1_cov.duckdb_d1_cov_${D1_RUN_TAG} VALUES (4, 'delta', 4.5, 'z', 40) RETURNING *
+----
+RETURNING is not supported for insertion
+
+statement error
+INSERT INTO d1_cov.duckdb_d1_cov_${D1_RUN_TAG} VALUES (1, 'dup', 9.9, 'dup', 90) ON CONFLICT DO NOTHING
+----
+does not support MERGE INTO or ON CONFLICT
+
+statement error
+DELETE FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG} WHERE id = 1 RETURNING *
+----
+RETURNING is not supported for deletion
+
+statement error
+UPDATE d1_cov.duckdb_d1_cov_${D1_RUN_TAG} SET name = 'x' WHERE id = 1 RETURNING *
+----
+RETURNING is not supported for updates
+
+statement error
+UPDATE d1_cov.duckdb_d1_cov_${D1_RUN_TAG} SET cnt = DEFAULT WHERE id = 1
+----
+SET DEFAULT is not supported
+
+statement error
+ALTER TABLE d1_cov.duckdb_d1_cov_${D1_RUN_TAG} ALTER COLUMN name SET DATA TYPE VARCHAR
+----
+Unsupported ALTER TABLE operation
+
+statement error
+SELECT * FROM d1_query('d1_live', 'SELECT 1', all_varchar := [1])
+----
+INTEGER[] -> BOOLEAN
+
+statement error
+SELECT * FROM d1_tables('d1_live', include_views := [1])
+----
+INTEGER[] -> BOOLEAN
+
+statement error
+SELECT * FROM d1_scan('d1_live', 'duckdb_d1_cov_${D1_RUN_TAG}', max_rows := 'x')
+----
+Could not convert string 'x' to UINT64
+
+statement error
+SELECT * FROM d1_batch_execute('d1_live', '{"sql":"select 1"}')
+----
+Batch payload must be a JSON array
+
+statement error
+SELECT * FROM d1_batch_execute('d1_live', 'not-json')
+----
+Invalid batch payload
+
+statement error
+SELECT * FROM d1_execute('d1_live', 'SELECT ? + ? AS x', params := [1])
+----
+D1 HTTP request failed
+
+statement error
+SELECT * FROM d1_query('d1_live', 'SELECT * FROM duckdb_d1_missing_table_${D1_RUN_TAG}')
+----
+D1 HTTP request failed
+
+statement error
+SELECT * FROM d1_raw('d1_live', 'SELECT key FROM _cf_KV LIMIT 1')
+----
+D1 HTTP request failed
+
+statement ok
+DROP VIEW IF EXISTS d1_cov.duckdb_d1_cov_view_${D1_RUN_TAG}
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_ctas_${D1_RUN_TAG}
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_rename_b_${D1_RUN_TAG}
+
+statement ok
+DROP TABLE IF EXISTS d1_cov.duckdb_d1_composite_${D1_RUN_TAG}
+
+statement ok
+DELETE FROM d1_cov.duckdb_d1_cov_${D1_RUN_TAG}
+
+statement ok
+DETACH d1_cov
+
+statement ok
+CREATE SECRET d1_bad_port (
+    TYPE d1,
+    account_id 'acc',
+    database_id 'db',
+    api_token 'token',
+    endpoint 'http://127.0.0.1:abc'
+)
+
+statement error
+SELECT * FROM d1_query('d1_bad_port', 'SELECT 1')
+----
+Invalid URL, invalid port
+
+statement ok
+CREATE SECRET d1_unreachable (
+    TYPE d1,
+    account_id 'acc',
+    database_id 'db',
+    api_token 'token',
+    endpoint 'http://127.0.0.1:1'
+)
+
+statement error
+SELECT * FROM d1_query('d1_unreachable', 'SELECT 1')
+----
+D1 HTTP request failed
+
+statement error
+SELECT * FROM d1_query(NULL, 'SELECT 1')
+----
+d1_query argument "secret_name" cannot be NULL
+
+statement error
+SELECT * FROM d1_query('d1_unreachable', '')
+----
+d1_query argument "sql" cannot be empty
+
+statement error
+SELECT * FROM d1_execute('missing_secret', 'SELECT 1')
+----
+Secret with name "missing_secret" not found
+
+statement error
+SELECT * FROM d1_query('d1_unreachable', 'INSERT INTO t VALUES (1)')
+----
+d1_query only supports read queries
+
+statement error
+SELECT * FROM d1_raw('d1_unreachable', 'DELETE FROM t')
+----
+d1_raw only supports read queries
+
+statement error
+SELECT * FROM d1_raw('d1_unreachable', '')
+----
+d1_raw argument "sql" cannot be empty
+
+statement error
+SELECT * FROM d1_tables(NULL)
+----
+d1_tables argument "secret_name" cannot be NULL
+
+statement error
+SELECT * FROM d1_tables()
+----
+No function matches the given name and argument types 'd1_tables()'
+
+statement error
+SELECT * FROM d1_attach(NULL)
+----
+d1_attach argument "secret_name" cannot be NULL
+
+statement error
+SELECT * FROM d1_attach()
+----
+No function matches the given name and argument types 'd1_attach()'
+
+statement error
+SELECT * FROM d1_batch_execute('d1_unreachable', '{"sql": "select 1"}')
+----
+Batch payload must be a JSON array
+
+statement error
+SELECT * FROM d1_batch_execute('d1_unreachable', 1)
+----
+Batch payload must be a JSON string, LIST or ARRAY
+
+statement error
+SELECT * FROM d1_batch_execute('d1_unreachable', '["select 1", {"foo": 1}]')
+----
+Batch entries must be strings or objects with a sql field
+
+statement error
+SELECT * FROM d1_scan('d1_unreachable', '')
+----
+d1_scan argument "table_name" cannot be empty
+
+statement error
+SELECT * FROM d1_scan('d1_unreachable', NULL)
+----
+d1_scan argument "table_name" cannot be NULL
+
+statement error
+SELECT * FROM d1_execute('d1_unreachable', NULL)
+----
+d1_execute argument "sql" cannot be NULL
+
+statement ok
+SET enable_external_access = false
+
+statement error
+ATTACH '' AS d1_disabled (TYPE d1, SECRET d1_unreachable)
+----
+disabled through configuration
